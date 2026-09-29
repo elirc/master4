@@ -1,0 +1,21 @@
+{
+  "project": "_Organized Desktop/03 Master Projects/master4",
+  "id": "3302b1d1ab07",
+  "command": [
+    "npm.cmd",
+    "run",
+    "typecheck"
+  ],
+  "cwd": "C:\\Users\\Owner\\Desktop\\AstraOrganized2\\astra-remaining-improvements\\stage\\3302b1d1ab07",
+  "environmentOverrides": {
+    "DATABASE_URL": "file:./prisma/dev.db"
+  },
+  "startedAt": "2026-09-12T18:34:14.364941+00:00",
+  "status": "complete",
+  "log": "typecheck-2.log",
+  "pid": 14380,
+  "exitCode": 0,
+  "passed": true,
+  "finishedAt": "2026-09-12T18:34:43.269757+00:00",
+  "elapsedSeconds": 28.9
+}

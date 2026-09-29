@@ -1,0 +1,21 @@
+{
+  "project": "_Organized Desktop/03 Master Projects/master4",
+  "id": "3302b1d1ab07",
+  "command": [
+    "npm.cmd",
+    "run",
+    "db:push"
+  ],
+  "cwd": "C:\\Users\\Owner\\Desktop\\AstraOrganized2\\astra-remaining-improvements\\stage\\3302b1d1ab07",
+  "environmentOverrides": {
+    "DATABASE_URL": "file:./prisma/dev.db"
+  },
+  "startedAt": "2026-09-12T18:35:47.390150+00:00",
+  "status": "complete",
+  "log": "db-push.log",
+  "pid": 17960,
+  "exitCode": 0,
+  "passed": true,
+  "finishedAt": "2026-09-12T18:35:58.802397+00:00",
+  "elapsedSeconds": 11.41
+}

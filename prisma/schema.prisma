@@ -1,0 +1,280 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id          String       @id
+  name        String
+  plan        String
+  createdAt   DateTime     @default(now())
+  users       User[]
+  warehouses  Warehouse[]
+  suppliers   Supplier[]
+  products    Product[]
+  salesOrders SalesOrder[]
+  events      DomainEvent[]
+  auditLogs   AuditLog[]
+}
+
+model User {
+  id        String   @id
+  tenantId  String
+  name      String
+  email     String
+  role      String
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, email])
+  @@index([tenantId, role])
+}
+
+model Warehouse {
+  id             String          @id
+  tenantId       String
+  code           String
+  name           String
+  region         String
+  timezone       String
+  active         Boolean         @default(true)
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  inventoryItems InventoryItem[]
+  salesOrders    SalesOrder[]
+  purchaseOrders PurchaseOrder[]
+  shipments      Shipment[]
+
+  @@unique([tenantId, code])
+}
+
+model Supplier {
+  id             String          @id
+  tenantId       String
+  name           String
+  contactEmail   String
+  reliability    Int
+  leadTimeDays   Int
+  active         Boolean         @default(true)
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([tenantId, name])
+}
+
+model Product {
+  id          String   @id
+  tenantId    String
+  name        String
+  category    String
+  description String
+  active      Boolean  @default(true)
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  skus        Sku[]
+
+  @@index([tenantId, category])
+}
+
+model Sku {
+  id             String          @id
+  productId      String
+  skuCode        String          @unique
+  barcode        String          @unique
+  name           String
+  unitCostCents  Int
+  priceCents     Int
+  weightGrams    Int
+  active         Boolean         @default(true)
+  product        Product         @relation(fields: [productId], references: [id])
+  inventoryItems InventoryItem[]
+  salesLines     SalesOrderLine[]
+  purchaseLines  PurchaseOrderLine[]
+
+  @@index([productId])
+}
+
+model InventoryItem {
+  id            String   @id
+  warehouseId   String
+  skuId         String
+  onHand        Int
+  reserved      Int
+  reorderPoint  Int
+  safetyStock   Int
+  updatedAt     DateTime @updatedAt
+  warehouse     Warehouse @relation(fields: [warehouseId], references: [id])
+  sku           Sku       @relation(fields: [skuId], references: [id])
+
+  @@unique([warehouseId, skuId])
+  @@index([skuId])
+}
+
+model SalesOrder {
+  id            String           @id
+  tenantId      String
+  warehouseId   String
+  orderNumber   String
+  customerName  String
+  channel       String
+  status        String
+  paymentStatus String
+  priority      String
+  placedAt      DateTime
+  promisedShipBy DateTime
+  tenant        Tenant           @relation(fields: [tenantId], references: [id])
+  warehouse     Warehouse        @relation(fields: [warehouseId], references: [id])
+  lines         SalesOrderLine[]
+  reservations  StockReservation[]
+  shipments     Shipment[]
+  returns       Return[]
+
+  @@unique([tenantId, orderNumber])
+  @@index([tenantId, status])
+}
+
+model SalesOrderLine {
+  id           String     @id
+  salesOrderId String
+  skuId        String
+  quantity     Int
+  unitPriceCents Int
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id])
+  sku          Sku        @relation(fields: [skuId], references: [id])
+}
+
+model StockReservation {
+  id           String     @id
+  salesOrderId String
+  skuId        String
+  warehouseId  String
+  quantity     Int
+  status       String
+  expiresAt    DateTime
+  createdAt    DateTime   @default(now())
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id])
+
+  @@index([warehouseId, skuId, status])
+}
+
+model PurchaseOrder {
+  id             String              @id
+  tenantId       String
+  supplierId     String
+  warehouseId    String
+  poNumber       String
+  status         String
+  expectedAt     DateTime
+  createdAt      DateTime            @default(now())
+  supplier       Supplier            @relation(fields: [supplierId], references: [id])
+  warehouse      Warehouse           @relation(fields: [warehouseId], references: [id])
+  lines          PurchaseOrderLine[]
+
+  @@unique([tenantId, poNumber])
+  @@index([tenantId, status])
+}
+
+model PurchaseOrderLine {
+  id              String        @id
+  purchaseOrderId String
+  skuId           String
+  orderedQty      Int
+  receivedQty     Int
+  unitCostCents   Int
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  sku             Sku           @relation(fields: [skuId], references: [id])
+}
+
+model Shipment {
+  id            String     @id
+  salesOrderId  String
+  warehouseId   String
+  shipmentNumber String
+  carrier       String
+  serviceLevel  String
+  trackingCode  String
+  status        String
+  shippedAt     DateTime?
+  salesOrder    SalesOrder @relation(fields: [salesOrderId], references: [id])
+  warehouse     Warehouse  @relation(fields: [warehouseId], references: [id])
+}
+
+model Return {
+  id           String     @id
+  salesOrderId String
+  rmaNumber    String
+  status       String
+  reason       String
+  createdAt    DateTime   @default(now())
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id])
+
+  @@unique([rmaNumber])
+}
+
+model InventoryAdjustment {
+  id           String   @id
+  warehouseId  String
+  skuId        String
+  quantityDelta Int
+  reason       String
+  referenceType String
+  referenceId  String
+  createdById  String
+  createdAt    DateTime @default(now())
+
+  @@index([warehouseId, skuId, createdAt])
+}
+
+model AuditLog {
+  id        String   @id
+  tenantId  String
+  actorId   String
+  action    String
+  entityType String
+  entityId  String
+  metadata  String
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, entityType, entityId])
+}
+
+model DomainEvent {
+  id          String   @id
+  tenantId    String
+  eventType   String
+  aggregateType String
+  aggregateId String
+  payload     String
+  occurredAt  DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  outbox      OutboxMessage?
+
+  @@index([tenantId, eventType, occurredAt])
+}
+
+model OutboxMessage {
+  id          String   @id
+  eventId     String   @unique
+  destination String
+  status      String
+  attempts    Int      @default(0)
+  availableAt DateTime
+  processedAt DateTime?
+  event       DomainEvent @relation(fields: [eventId], references: [id])
+}
+
+model Notification {
+  id        String   @id
+  tenantId  String
+  userId    String
+  type      String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, userId, read])
+}

@@ -1,0 +1,25 @@
+{
+  "project": "_Organized Desktop/03 Master Projects/master4",
+  "id": "3302b1d1ab07",
+  "command": [
+    "npm.cmd",
+    "ci",
+    "--prefer-offline",
+    "--no-audit",
+    "--no-fund",
+    "--cache",
+    "C:\\Users\\Owner\\Desktop\\AstraOrganized2\\astra-remaining-improvements\\npm-cache"
+  ],
+  "cwd": "C:\\Users\\Owner\\Desktop\\AstraOrganized2\\astra-remaining-improvements\\stage\\3302b1d1ab07",
+  "environmentOverrides": {
+    "DATABASE_URL": "file:./prisma/dev.db"
+  },
+  "startedAt": "2026-09-12T18:24:32.523907+00:00",
+  "status": "complete",
+  "log": "npm-ci-3.log",
+  "pid": 30420,
+  "exitCode": 0,
+  "passed": true,
+  "finishedAt": "2026-09-12T18:31:18.492031+00:00",
+  "elapsedSeconds": 405.95
+}
