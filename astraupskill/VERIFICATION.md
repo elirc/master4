@@ -1,16 +1,24 @@
 # Verification and honest coverage
 
-The changed inventory rules were checked on Windows with Node 22.16 and npm 10.9.2. The final full run passed **12 tests in two files**: nine pure inventory rule tests and three API health, dashboard-read and CSV-export tests. Type checking and the TypeScript/Vite build also passed. The focused nine-test run is a subset of those twelve, so it is not an additional nine unique tests.
+## Recorded run (2026-09-12, frozen)
 
-## What the evidence proves
+The JSON records in `evidence/` come from one run on Windows in an isolated staging copy (their `cwd` fields are that machine's paths); the original write-up gives Node 22.16 and npm 10.9.2. The records hold command, exit code and timing, not test counts; the count below comes from that write-up, which read the run's logs. At that time the suite was **12 tests in two files**: nine pure inventory rule tests and three API tests (health, dashboard read, CSV export). Install, client generation, schema creation, seeding, the full test run, the focused rule-test run, type checking and the build all exited 0. The focused nine-test run is a subset of the twelve, not nine more.
 
-The duplicate-line regression submits quantities 14 and 9 for one SKU with 22 available units. Each line fits independently; their combined demand of 23 does not. The planner now reports that combined shortage. Other new assertions reject invalid quantities and direct helper over-reservation. Source review confirmed that the real reservation service calls the planner before its inventory, reservation, order, event and outbox writes. Its rejected-decision branch still writes a failure audit. Rejection therefore does not imply that every table remains unchanged.
+The run also wrote `.log` files beside each JSON record, but `*.log` is in `.gitignore`, so they are not in this repository; the JSON records (command, environment override, exit code, timing) are what remains.
 
-The API tests read seeded data; they do not exercise the reservation write endpoint. A passing build establishes compilation and bundle generation, not browser usability. Concurrent reservation correctness, persistent write rollback, invalid stored balances and external delivery remain separate exercises.
+## Since then (checked 2026-10-06)
+
+`tests/reservation-api.test.ts` was added after that run, together with the per-SKU write loop in `orders.service.ts`. Counting `it(` calls, the suite is now **14 tests in three files** (9 + 3 + 2). There is no evidence record for a 14-test run in `evidence/`. What was re-run on 2026-10-06, without installing anything: the six practice checks in `05-PRACTICE.md` against `src/shared/inventoryRules.ts` with `node --experimental-strip-types --test` on Node 22.16 (five pass; Exercise 5 fails by design until `applyShipment` is fixed, and passes with the `06` solution), and the `03` demo, whose output is quoted there.
+
+## What the evidence proves, and what it does not
+
+The duplicate-line regression submits 14 and 9 for one SKU with 22 available. Each line fits; their sum of 23 does not, and the planner reports that combined shortage. Other assertions reject invalid quantities and direct over-reservation. `tests/reservation-api.test.ts` drives the real reserve route against the seeded SQLite file: refusal leaves `reserved` and the reservation count unchanged and writes one failure audit row; a fitting two-line order writes one reservation row of the summed quantity.
+
+Not covered: two reservations racing for one balance, double submission of one order, rollback when a write fails mid-transaction, and browser behavior. A passing build establishes compilation and bundling only.
 
 ## Reproduce in a disposable project copy
 
-Use a fresh copy of the project without existing database files, dependencies or private environment files. Run the following PowerShell commands from that copy's root. **The existing `db:push` script recreates `prisma/dev.db`, and `db:seed` deletes rows before inserting fixtures.** These commands belong in the disposable copy because changing `DATABASE_URL` does not redirect the custom schema creation script. Inspect [that script](../prisma/create-sqlite-schema.ts) and [the seed](../prisma/seed.ts) first.
+Use a fresh copy without existing database files, dependencies or private environment files, and run these PowerShell commands from its root. **`db:push` deletes and recreates `prisma/dev.db` (`prisma/create-sqlite-schema.ts:5-9`), and `db:seed` deletes every row before inserting fixtures (`prisma/seed.ts:7-25`).** Setting `DATABASE_URL` does not redirect the schema script, which always writes `prisma/dev.db`; that is why the commands point `DATABASE_URL` at the same file. Inspect [the schema script](../prisma/create-sqlite-schema.ts) and [the seed](../prisma/seed.ts) first.
 
 ```powershell
 npm ci --no-audit --no-fund
@@ -31,10 +39,8 @@ npm run build
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 ```
 
-An absolute SQLite URL avoids the relative-path ambiguity encountered during verification. Successful fixture creation alone is not enough: the seed and tests must open that same file. The actual recorded run used an absolute URL inside the isolated staging copy. No original project database was copied, reset or seeded. Database files and generated dependency/build folders are not part of this delivery.
+An absolute SQLite URL avoids the relative-path ambiguity met during the recorded run: the seed and the tests must open the same file the schema script created. Expect 14 passing tests today. Each full run leaves one `order.reserved` domain event and one pending outbox row behind, because `tests/reservation-api.test.ts:37-42` does not delete them; re-run `db:seed` for a clean database.
 
-## Recorded results and earlier failures
+## Evidence index
 
-The final [full test log](evidence/full-test-absolute.log) and [machine-readable run record](evidence/full-test-absolute.json) show the twelve passing tests and the precise database override. The [focused test log](evidence/inventory-rules.log), [typecheck log](evidence/typecheck-2.log) and [build log](evidence/build-2.log) provide the other outcomes. Successful setup records are included for [installation](evidence/npm-ci-3.json), [client generation](evidence/prisma-generate.json), [schema creation](evidence/db-push.json) and [absolute-path seeding](evidence/db-seed-absolute.json).
-
-Earlier command-launch attempts failed, initial generation-dependent type/build checks failed, and initial API runs returned errors before the database was correctly initialized and seeded. Those failures remain in the central audit history; they are not counted as passes. The final commands above explain the setup that resolved them. If your local result differs, compare the first failed command, database URL and generated Prisma client before changing application assertions. Keep the duplicate-SKU regression intact: relaxing it would remove the evidence for the behavior repaired here.
+[installation](evidence/npm-ci-3.json), [client generation](evidence/prisma-generate.json), [schema creation](evidence/db-push.json), [absolute-path seeding](evidence/db-seed-absolute.json), [full test run](evidence/full-test-absolute.json), [focused rule tests](evidence/inventory-rules.json), [typecheck](evidence/typecheck-2.json), [build](evidence/build-2.json). Earlier failed attempts (command launch, generation-dependent type/build checks, API runs before the database was seeded) are not counted as passes and are not stored here. If your result differs, compare the first failed command, the database URL and the generated Prisma client before changing any assertion, and keep the duplicate-SKU regression intact.

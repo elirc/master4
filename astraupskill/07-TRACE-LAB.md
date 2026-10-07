@@ -1,12 +1,29 @@
 # 07: trace lab from request to stock state
 
-Start at `src/server/app.ts`. A warehouse manager or admin sends `POST /api/orders/:orderId/reserve`. `authenticateRequest` runs first, then `requireRole` checks the role. The route parses the non-empty `orderId` and calls `reserveSalesOrder(prisma, orderId)`. The route itself does not calculate stock; that belongs to the order module and the shared rule.
+Start at `src/server/app.ts`. A client sends `POST /api/orders/:orderId/reserve`. `authenticateRequest` (`app.ts:26`) resolves the actor from the `x-user-id` header, falling back to the seeded admin when the header is absent (finding F1 in `06`). `requireRole(['warehouse_manager', 'admin'])` (`app.ts:52`) then compares role ranks. The route parses a non-empty `orderId` with zod and calls `reserveSalesOrder(prisma, orderId)` (`app.ts:55`); it does not pass the actor. The route itself does not calculate stock; that belongs to the order module and the shared rule.
 
-In `src/server/modules/orders/orders.service.ts`, `reserveSalesOrder` opens `db.$transaction`. It loads the order with its lines. If no order exists, it returns `not_found`. If the status is already beyond `pending_reservation`, it returns the current status without repeating work. Otherwise it loads inventory rows for the order warehouse and the line SKUs. The changed `planReservation` is called with those lines and balances. For duplicate lines, the helper groups demand before returning. For invalid quantity or insufficient stock, the service writes a failed reservation audit record and returns without updating inventory or order status.
+In `src/server/modules/orders/orders.service.ts`, `reserveSalesOrder` opens `db.$transaction` (`:37`) and loads the order with its lines. No order → it returns `status: 'not_found'` (`:44`). Status other than `pending_reservation` → it returns `ok: true` with the current status and writes nothing (`:47-48`). Otherwise it loads `InventoryItem` rows for the order's warehouse and the line SKUs (`:51-56`) and calls `planReservation` (`:57`). For invalid quantity, missing balance, or insufficient stock, it writes one `order.reservation_failed` audit row and returns without touching inventory or order status (`:59-72`).
 
-When the decision succeeds, the service loops over order lines and increments each inventory row's `reserved` value, creates a `StockReservation`, changes the order to `allocated`, then creates a domain event, outbox message, and audit log. The transaction means these writes commit together. The shared helper does not know about HTTP, roles, Prisma, or events; that is a feature. It can be tested with ordinary objects and can be reused by a worker or import path.
+When the decision succeeds, the service sums lines per SKU (`:77-80`), and for each SKU calls `applyReservation` as a second guard (`:93`), increments that `InventoryItem.reserved` (`:95`) and creates one `StockReservation` (`:99`). It then sets the order to `allocated` (`:112`) and creates a domain event (`:116`), outbox message (`:126`) and audit row (`:135`). The transaction means these writes commit together. The shared helper does not know about HTTP, roles, Prisma, or events; that is a feature, because it can be tested with plain objects (Exercises 1-6) and reused by a worker or import path.
 
-For the lab, write down the values at each boundary for an order containing two lines of 14 and 9 against on-hand 42 and reserved 20. Before the fix, planning returns success and the service attempts two increments. If that transaction completes, its arithmetic would leave reserved at 43; this is a source trace, not an observed reservation API test. After the fix, planning returns one failure for 23 versus 22. The service returns HTTP 200 with `ok: false`, the unchanged order status and the failure details, and its transaction can commit the failure audit. It does not perform the allocation writes. Then repeat with one line of 18: planning permits allocation, which would leave reserved at 38 if the service transaction succeeds. The pure tests establish the decision; a disposable persistence test would be needed to prove the complete write sequence experimentally.
+## The lab
+
+Fill in this table for an order with lines 14 and 9 of one SKU against on-hand 42 and reserved 20, then for a single line of 18. Predict every cell before checking against the source lines above.
+
+| boundary | 14 + 9 | 18 |
+| --- | --- | --- |
+| `order.lines` length | 2 | 1 |
+| `requestedBySku` in the planner | `{ sku → 23 }` | `{ sku → 18 }` |
+| available | 22 | 22 |
+| decision | `ok: false`, one failure 23 vs 22 | `ok: true` |
+| HTTP | 200, `{ ok: false, status: 'pending_reservation', failures: [...] }` | 200, `{ ok: true, status: 'allocated', failures: [] }` |
+| `reserved` after commit | 20 (unchanged) | 38 |
+| new `StockReservation` rows | 0 | 1 |
+| new `AuditLog` rows | 1 (`order.reservation_failed`) | 1 (`order.reserved`, `lineCount: 1`) |
+
+Before the fix, the planner returned success for 14 + 9 and the per-line loop attempted two increments (to 34, then 43) with ids that could collide (next section). That is a source trace of the old code, not an observed run. The current behavior for the refusal case and for a fitting two-line order is observed by `tests/reservation-api.test.ts`, which uses `sku-pack-black` and quantities derived from the seeded balance rather than these numbers.
+
+Extension: run the same trace for an order whose status is already `allocated`, and for an order id that does not exist. Write down what the browser message in `src/App.tsx:76-81` would show for each (see F8 in `06`).
 
 ## The grouping step your trace passes through
 
@@ -30,5 +47,6 @@ export function planReservation(lines: ReservationLine[], balances: InventoryBal
 
 ## Why time-based ids collide
 
-The delivered service built ids like `` `res-${order.id}-${line.skuId}-${Date.now()}` ``. Two lines for the same SKU in one order run inside one transaction within the same millisecond, so the two ids were identical and the second insert failed on the primary key; and two orders reserved in the same millisecond produced the same `evt-order-reserved-<ms>`. `Date.now()` has millisecond resolution and no uniqueness guarantee; it is a timestamp, not an identifier. The fix pass uses `crypto.randomUUID()` (122 random bits) for every generated id. Keep a readable prefix if it helps debugging, but never let the uniqueness depend on the clock. Predict: which of the two collisions would the suite have caught before the fix? (Only the same-order one, and only with a two-line fixture; the cross-order one needs two requests in the same millisecond, which a test cannot force reliably. That is why the id scheme, not a test, is the guard.)
+The earlier service built ids like `` `res-${order.id}-${line.skuId}-${Date.now()}` ``. Two lines for the same SKU in one order ran inside one transaction within the same millisecond, so the two ids could be identical and the second insert failed on the primary key; two orders reserved in the same millisecond could produce the same `evt-order-reserved-<ms>`. `Date.now()` has millisecond resolution and no uniqueness guarantee; it is a timestamp, not an identifier. `orders.service.ts` now uses `randomUUID()` from `node:crypto` for every id it generates (`:62`, `:101`, `:118`, `:128`, `:137`). The reconciliation service has not been converted: `reconciliation.service.ts:25` and `:38` still use `Date.now()` (F7 in `06`).
 
+Predict: which of the two order-service collisions could a test have caught? Only the same-order one, with a two-line fixture. The cross-order one needs two requests in the same millisecond, which a test cannot force reliably. That is why the id scheme, not a test, is the guard. (Per-SKU writes now also mean one order never creates two reservation rows for one SKU.)
